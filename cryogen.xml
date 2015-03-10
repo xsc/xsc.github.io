@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<rss version='2.0' xmlns:atom='http://www.w3.org/2005/Atom'>
+<channel>
+<atom:link href='https://xsc.github.io/' rel='self' type='application/rss+xml'/>
+<generator>
+clj-rss
+</generator>
+<title>
+(:title data)
+</title>
+<link>
+https://xsc.github.io/
+</link>
+<description>
+ramble. ramble. ramble.
+</description>
+<lastBuildDate>
+Tue, 10 Mar 2015 20:38:25 +0100
+</lastBuildDate>
+<author>
+Yannick Scherer
+</author>
+</channel>
+</rss>

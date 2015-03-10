@@ -1,0 +1,44 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<rss version='2.0' xmlns:atom='http://www.w3.org/2005/Atom'>
+<channel>
+<atom:link href='https://xsc.github.io/' rel='self' type='application/rss+xml'/>
+<generator>
+clj-rss
+</generator>
+<title>
+(:title data)
+</title>
+<link>
+https://xsc.github.io/
+</link>
+<description>
+ramble. ramble. ramble.
+</description>
+<lastBuildDate>
+Tue, 10 Mar 2015 20:38:25 +0100
+</lastBuildDate>
+<author>
+Yannick Scherer
+</author>
+<item>
+<guid>
+https://xsc.github.io/posts/2015-03-10-welcome.html
+</guid>
+<link>
+https://xsc.github.io/posts/2015-03-10-welcome.html
+</link>
+<title>
+Hello, Cryogen!
+</title>
+<description>
+&lt;p&gt;I don't know how you ended up in this little corner of the internet but know that I call it mine and you can't have it. Yes, I might let it sit idle for prolonged periods of time and yes, when there is movement it might not be worthy of anything more than the trashcan - still, I was here first and that's all that counts.&lt;/p&gt;&lt;p&gt;By the way, doesn't &lt;a href='http://cryogenweb.org/'&gt;Cryogen&lt;/a&gt; look awesome? Setup was a breeze, it has so far proven to be very customizable and all in all I'd recommend it to anyone looking for ways of generating static sites.&lt;/p&gt;&lt;p&gt;So, that's that. Have a nice evening, everyone - maybe we'll meet again after I've filled some of the free space on this site.&lt;/p&gt;
+</description>
+<pubDate>
+Tue, 10 Mar 2015 00:00:00 +0100
+</pubDate>
+<author>
+Yannick Scherer
+</author>
+</item>
+</channel>
+</rss>
