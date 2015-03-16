@@ -15,11 +15,123 @@ https://xsc.github.io/
 ramble. ramble. ramble.
 </description>
 <lastBuildDate>
-Thu, 12 Mar 2015 16:47:28 +0100
+Tue, 17 Mar 2015 00:31:53 +0100
 </lastBuildDate>
 <author>
 Yannick Scherer
 </author>
+<item>
+<guid>
+https://xsc.github.io/posts/2015-03-17-routing-and-middlewares.html
+</guid>
+<link>
+https://xsc.github.io/posts/2015-03-17-routing-and-middlewares.html
+</link>
+<title>
+Sandwiches, Routing &amp; Middlewares
+</title>
+<description>
+&lt;blockquote&gt;&lt;p&gt; &lt;b&gt;TL;DR:&lt;/b&gt; &lt;a href='https://github.com/xsc/ronda-routing'&gt;ronda/routing&lt;/a&gt; promotes   loosely coupled middlewares and is also delicious. &lt;/p&gt;&lt;/blockquote&gt;&lt;h3&gt;&lt;a name=&quot;preface&quot;&gt;&lt;/a&gt;Preface&lt;/h3&gt;&lt;p&gt;Let's say you have a classic Clojure web service, consuming and producing JSON data. If you've built it in a &lt;a href='https://github.com/ring-clojure/ring'&gt;Ring&lt;/a&gt;-compliant way, its handler part might look something like the following:&lt;/p&gt;&lt;pre&gt;&lt;code class=&quot;clojure&quot;&gt;&amp;#40;def app
+  &amp;#40;-&amp;gt; &amp;#40;compojure/routes
+        &amp;#40;GET  &amp;quot;/people/:id&amp;quot; ...&amp;#41;
+        &amp;#40;GET  &amp;quot;/people&amp;quot; ...&amp;#41;
+        &amp;#40;POST &amp;quot;/people/:id&amp;quot; ...&amp;#41;&amp;#41;
+      &amp;#40;wrap-json&amp;#41;
+      &amp;#40;wrap-something-else&amp;#41;&amp;#41;&amp;#41;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;So far, so good, but a problem arises: you're told that the &lt;code&gt;POST&lt;/code&gt; data shall actually be delivered via form parameters since there are clients that seem to have problems with generating &quot;that JSON thingy&quot;.&lt;/p&gt;&lt;p&gt;Your stack doesn't really account for this, crap. And who changes requirements at this point in time? Well, whatever, let's get to it:&lt;/p&gt;&lt;pre&gt;&lt;code class=&quot;clojure&quot;&gt;&amp;#40;def app
+  &amp;#40;-&amp;gt; &amp;#40;compojure/routes
+        &amp;#40;wrap-json
+          &amp;#40;compojure/routes
+            &amp;#40;GET  &amp;quot;/people/:id&amp;quot; ...&amp;#41;
+            &amp;#40;GET  &amp;quot;/people&amp;quot; ...&amp;#41;&amp;#41;&amp;#41;
+        &amp;#40;wrap-form-params
+          &amp;#40;POST &amp;quot;/people/:id&amp;quot; ...&amp;#41;&amp;#41;&amp;#41;
+      &amp;#40;wrap-something-else&amp;#41;&amp;#41;&amp;#41;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;Ah, but we should add an ETag to the &lt;code&gt;GET /people/:id&lt;/code&gt; endpoint, so it can be cached (not the &lt;code&gt;GET /people&lt;/code&gt; one, though, since it changes way too frequently). But this one has to be applied after the response JSON was created, so there is really no way around the following disaster:&lt;/p&gt;&lt;pre&gt;&lt;code class=&quot;clojure&quot;&gt;&amp;#40;def app
+  &amp;#40;-&amp;gt; &amp;#40;compojure/routes
+        &amp;#40;-&amp;gt; &amp;#40;GET &amp;quot;/people/:id&amp;quot; ...&amp;#41;
+            &amp;#40;wrap-json&amp;#41;
+            &amp;#40;wrap-etag&amp;#41;&amp;#41;
+        &amp;#40;wrap-json
+          &amp;#40;GET &amp;quot;/people&amp;quot; ...&amp;#41;&amp;#41;
+        &amp;#40;wrap-form-params
+          &amp;#40;POST &amp;quot;/people/:id&amp;quot; ...&amp;#41;&amp;#41;&amp;#41;
+      &amp;#40;wrap-something-else&amp;#41;&amp;#41;&amp;#41;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;I exaggeratingly call it a disaster, yet it's still quite manageable in small applications (and proper namespacing goes a long way). However:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;the &lt;code&gt;wrap-json&lt;/code&gt; middleware is duplicated across multiple handlers,&lt;/li&gt;&lt;li&gt;you thus have to exchange it in multiple places if you want to switch  implementations,&lt;/li&gt;&lt;li&gt;you better pray that there are no more requirements that increase the  heterogenity of your service.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Maybe it's just me but we should be doing better.&lt;/p&gt;&lt;h3&gt;&lt;a name=&quot;sandwiches&quot;&gt;&lt;/a&gt;Sandwiches&lt;/h3&gt;&lt;p&gt;When my girlfriend asked me about my day I wanted to tell her about this thing I was working on. But she doesn't care much for the technobabble-esque sprout of words I'd produce were I to present it, for example, at work - thus, an analogy was needed! And since it was over dinner, a delicious one at that!&lt;/p&gt;&lt;blockquote&gt;&lt;p&gt; Imagine a sandwich dispenser with buttons delivering different variants of   awesome sandwiches; let's say a French Ham and Cheese Sandwich or a Deviled Ham   with Pickled Jalapeños one. &lt;/p&gt;&lt;/blockquote&gt;&lt;p&gt;Disclaimer: I don't know a lot about sandwiches and they are also not that common in Germany, so I basically just googled &lt;code&gt;sandwich recipes&lt;/code&gt; and random-walked across the first few results.&lt;/p&gt;&lt;blockquote&gt;&lt;p&gt; Now, what happens exactly when you press the button? One possible outcome   could certainly be that a small door opens somewhere deep inside the   machine and your ready-made sandwich slides down into your arms.&lt;br /&gt; &lt;br /&gt;   In some other cases a tiny conveyor belt could be activated, a slice of bread   is put onto it, then some slices of ham (French or Deviled), cheese and spicy   stuff afterwards - but only if the sandwich requires it. &lt;br /&gt; &lt;br /&gt;   Basically, the moment you press the button, the sandwich recipe is sent to the   conveyor belt and only the needed ingredients are added. &lt;/p&gt;&lt;/blockquote&gt;&lt;p&gt;I then explained the maintenance advantages.&lt;/p&gt;&lt;blockquote&gt;&lt;p&gt; If, for example, it turns out that sandwiches with ham on top of the chesse sell better than the other way around you don't have to rearrange all the ready-made stacks, just the order of the ingredients on the belt. Same goes if you prefer a certain kind of cheese over the current one. &lt;/p&gt;&lt;/blockquote&gt;&lt;p&gt;She nodded, smiled and we had carrot cake; and if you haven't caught on: The ham is a middleware.&lt;/p&gt;&lt;h3&gt;&lt;a name=&quot;what&amp;#95;about&amp;#95;the&amp;#95;cheese?&quot;&gt;&lt;/a&gt;What about the Cheese?&lt;/h3&gt;&lt;p&gt;Also a middleware.&lt;/p&gt;&lt;h3&gt;&lt;a name=&quot;conditional&amp;#95;middlewares&quot;&gt;&lt;/a&gt;Conditional Middlewares&lt;/h3&gt;&lt;p&gt;Many existing middlewares are already triggered by some piece of information in the request or response maps - &lt;a href='https://github.com/ring-clojure/ring-json'&gt;ring-json&lt;/a&gt;, for example, only runs if the &lt;code&gt;content-type&lt;/code&gt; header is set appropriately. But there are much more powerful triggers.&lt;/p&gt;&lt;p&gt;&lt;b&gt;Route Early ...&lt;/b&gt;&lt;/p&gt;&lt;p&gt;If the routing decision is made at the very top of the stack and the actual request processing happens on the very bottom, all middlewares inbetween have access to where the current request &lt;i&gt;will be routed&lt;/i&gt;:&lt;/p&gt;&lt;pre&gt;&lt;code class=&quot;clojure&quot;&gt;{:request-method :get
+ :uri            &amp;quot;/people/123&amp;quot;
+ :headers        {}
+ :route-id       :person
+ :route-params   {:id 123}}
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;This means that the available routes have to be decoupled from the handlers and routing has to produce an identifier that can then be mapped back. Libraries like &lt;a href='https://github.com/juxt/bidi'&gt;bidi&lt;/a&gt; and &lt;a href='https://github.com/weavejester/clout'&gt;clout&lt;/a&gt; already make this possible.&lt;/p&gt;&lt;p&gt;&lt;b&gt;... Decide Later ...&lt;/b&gt;&lt;/p&gt;&lt;p&gt;A middleware can then easily be wrapped to only run for certain routes:&lt;/p&gt;&lt;pre&gt;&lt;code class=&quot;clojure&quot;&gt;&amp;#40;defn endpoint-middleware
+  &amp;#91;handler wrap-fn route-ids&amp;#93;
+  &amp;#40;let &amp;#91;run? &amp;#40;comp &amp;#40;set route-ids&amp;#41; :route-id&amp;#41;
+        wrapped-handler &amp;#40;wrap-fn handler&amp;#41;&amp;#93;
+    &amp;#40;fn &amp;#91;request&amp;#93;
+      &amp;#40;if &amp;#40;run? request&amp;#41;
+        &amp;#40;wrapped-handler request&amp;#41;
+        &amp;#40;handler request&amp;#41;&amp;#41;&amp;#41;&amp;#41;&amp;#41;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;And your stack becomes not unlike the aforementioned sandwich conveyor belt:&lt;/p&gt;&lt;pre&gt;&lt;code class=&quot;clojure&quot;&gt;&amp;#40;def app
+  &amp;#40;-&amp;gt; &amp;#40;dispatch-by-route-id
+        {:person &amp;#40;fn &amp;#91;request&amp;#93; ...&amp;#41;
+         ...}&amp;#41;
+      &amp;#40;endpoint-middleware wrap-json &amp;#91;:person :people&amp;#93;&amp;#41;
+      &amp;#40;endpoint-middleware wrap-form-params &amp;#91;:save-person&amp;#93;&amp;#41;
+      &amp;#40;endpoint-middleware wrap-etag &amp;#91;:person&amp;#93;&amp;#41;
+      &amp;#40;attach-route-id
+        {&amp;quot;/person/:id&amp;quot; :person
+         ...&amp;#41;&amp;#41;&amp;#41;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;There is exactly one place for each middleware where endpoints have to register themselves. This makes it easy to activate them but can make it hard to grasp which are actually active for a specific route.&lt;/p&gt;&lt;p&gt;&lt;b&gt;... or Let Someone Else Decide.&lt;/b&gt;&lt;/p&gt;&lt;p&gt;If we are already able to make an independent routing decision there is no reason why we shouldn't be able to attach more routing-based information to a request - say, middleware IDs?&lt;/p&gt;&lt;pre&gt;&lt;code class=&quot;clojure&quot;&gt;&amp;#40;defn attach-middlewares
+  &amp;#91;handler middlewares&amp;#93;
+  {:pre &amp;#91;&amp;#40;map? middlewares&amp;#41;&amp;#93;}
+  &amp;#40;let &amp;#91;lookup &amp;#40;comp set middlewares :route-id&amp;#41;&amp;#93;
+    &amp;#40;fn &amp;#91;request&amp;#93;
+      &amp;#40;-&amp;gt; request
+          &amp;#40;assoc :route-middlewares &amp;#40;lookup request&amp;#41;&amp;#41;
+          &amp;#40;handler&amp;#41;&amp;#41;&amp;#41;&amp;#41;&amp;#41;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;And middlewares can react:&lt;/p&gt;&lt;pre&gt;&lt;code class=&quot;clojure&quot;&gt;&amp;#40;defn routed-middleware
+  &amp;#91;handler middleware-id wrap-fn&amp;#93;
+  &amp;#40;let &amp;#91;run? #&amp;#40;contains? &amp;#40;:route-middlewares %&amp;#41; middleware-id&amp;#41;
+        wrapped-handler &amp;#40;wrap-fn handler&amp;#41;&amp;#93;
+    &amp;#40;fn &amp;#91;request&amp;#93;
+      &amp;#40;if &amp;#40;run? request&amp;#41;
+        &amp;#40;wrapped-handler request&amp;#41;
+        &amp;#40;handler request&amp;#41;&amp;#41;&amp;#41;&amp;#41;&amp;#41;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;Which leaves our stack with a clear separation of concerns:&lt;/p&gt;&lt;pre&gt;&lt;code class=&quot;clojure&quot;&gt;&amp;#40;def app
+  &amp;#40;-&amp;gt; &amp;#40;dispatch-by-route-id
+        {:person &amp;#40;fn &amp;#91;request&amp;#93; ...&amp;#41;, ...}&amp;#41;
+      &amp;#40;routed-middleware :json        wrap-json&amp;#41;
+      &amp;#40;routed-middleware :form-params wrap-form-params&amp;#41;
+      &amp;#40;routed-middleware :etag        wrap-etag&amp;#41;
+      &amp;#40;attach-middlewares
+        {:person &amp;#91;:json :etag&amp;#93;, ...}&amp;#41;
+      &amp;#40;attach-route-id
+        {&amp;quot;/people/:id&amp;quot; :person}&amp;#41;&amp;#41;&amp;#41;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;Note that it's still possible to use &lt;code&gt;endpoint-middleware&lt;/code&gt; or wrap handlers directly. Even &lt;code&gt;compojure/routes&lt;/code&gt; can still have a place in this, although it means making the routing decision twice.&lt;/p&gt;&lt;h3&gt;&lt;a name=&quot;introducing&amp;#95;&lt;code&gt;ronda/routing&lt;/code&gt;&quot;&gt;&lt;/a&gt;Introducing &lt;code&gt;ronda/routing&lt;/code&gt;&lt;/h3&gt;&lt;p&gt;&lt;b&gt;&lt;a href='https://github.com/xsc/ronda-routing'&gt;ronda/routing&lt;/a&gt;&lt;/b&gt; is the library that captures the concepts presented here. The main difference is that it encapsulates all routing information (and arbitrary metadata) in a special data structure - the so-called &lt;code&gt;RouteDescriptor&lt;/code&gt; - which gets (together with the routing decision) injected into incoming requests and can be used further down the line for e.g.:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;documentation&lt;/b&gt;: the &lt;code&gt;RouteDescriptor&lt;/code&gt; can contain descriptions/schemas/...  which can be rendered in a user-friendly way,&lt;/li&gt;&lt;li&gt;&lt;b&gt;path generation&lt;/b&gt;: You want to link to some other endpoint? The descriptor  knows how.&lt;/li&gt;&lt;li&gt;&lt;b&gt;path matching&lt;/b&gt;: You want to use references like &lt;code&gt;/people/123&lt;/code&gt; as identifiers? The descriptor can tell you what data they represent.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;There are implementations for &lt;a href='https://github.com/xsc/ronda-routing-bidi'&gt;bidi&lt;/a&gt; and &lt;a href='https://github.com/xsc/ronda-routing-clout'&gt;clout&lt;/a&gt; and usage is very similar to the previous examples:&lt;/p&gt;&lt;pre&gt;&lt;code class=&quot;clojure&quot;&gt;&amp;#40;require '&amp;#91;ronda.routing :as routing&amp;#93;
+         '&amp;#91;ronda.routing.clout :as clout&amp;#93;&amp;#41;
+
+&amp;#40;def routes
+  &amp;#40;-&amp;gt; &amp;#40;clout/descriptor
+        {:person &amp;quot;/person/:id&amp;quot;, ...}&amp;#41;
+      &amp;#40;routing/enable-middlewares
+        :person &amp;#91;:json :etag&amp;#93;
+        ...&amp;#41;&amp;#41;&amp;#41;
+
+&amp;#40;def app
+  &amp;#40;-&amp;gt; &amp;#40;routing/compile-endpoints
+        {:person &amp;#40;fn &amp;#91;request&amp;#93; ...&amp;#41;, ...}&amp;#41;
+      &amp;#40;routing/routed-middlewares :json        wrap-json&amp;#41;
+      &amp;#40;routing/routed-middlewares :form-params wrap-form-params&amp;#41;
+      &amp;#40;routing/routed-middlewares :etag        wrap-etag&amp;#41;
+      &amp;#40;routing/wrap-routing routes&amp;#41;&amp;#41;&amp;#41;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;Much more functionality remains to be explored (and I might do so in future posts) but for now I'd refer anyone interested to the &lt;a href='https://github.com/xsc/ronda-routing/blob/master/README.md'&gt;README&lt;/a&gt; and the &lt;a href='https://xsc.github.io/ronda-routing/'&gt;auto-generated documentation&lt;/a&gt;.&lt;/p&gt;&lt;p&gt;Also, for a related project, see &lt;a href='https://github.com/xsc/ronda-schema'&gt;ronda/schema&lt;/a&gt; - you might already know how to properly integrate it. :)&lt;/p&gt;
+</description>
+<pubDate>
+Tue, 17 Mar 2015 00:00:00 +0100
+</pubDate>
+<author>
+Yannick Scherer
+</author>
+</item>
 <item>
 <guid>
 https://xsc.github.io/posts/2015-03-10-welcome.html
