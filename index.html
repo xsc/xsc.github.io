@@ -8,9 +8,10 @@
           type='text/css'>
     <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.0/css/bootstrap.min.css">
     <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.2.0/css/font-awesome.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/8.1/styles/default.min.css">
     <link href="css/screen.css" rel="stylesheet" type="text/css" />
     <link href="css/style.css" rel="stylesheet" type="text/css" />
+    <link rel="stylesheet"
+    href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/8.1/styles/solarized_light.min.css">
 </head>
 <body>
 
@@ -68,31 +69,30 @@
     
     <blockquote><p> <b>TL;DR:</b> <a href='https://github.com/xsc/ronda-routing'>ronda/routing</a> promotes   loosely coupled middlewares and is also delicious. </p></blockquote><h3><a name="preface"></a>Preface</h3><p>Let's say you have a classic Clojure web service, consuming and producing JSON data. If you've built it in a <a href='https://github.com/ring-clojure/ring'>Ring</a>-compliant way, its handler part might look something like the following:</p><pre><code class="clojure">&#40;def app
   &#40;-&gt; &#40;compojure/routes
-        &#40;GET  &quot;/people/:id&quot; ...&#41;
-        &#40;GET  &quot;/people&quot; ...&#41;
-        &#40;POST &quot;/people/:id&quot; ...&#41;&#41;
+        &#40;GET  &quot;/people/:id&quot; req &#40;person-handler req&#41;&#41;
+        &#40;GET  &quot;/people&quot;     req &#40;people-handler req&#41;&#41;
+        &#40;POST &quot;/people/:id&quot; req &#40;create-person! req&#41;&#41;&#41;
       &#40;wrap-json&#41;
       &#40;wrap-something-else&#41;&#41;&#41;
 </code></pre><p>So far, so good, but a problem arises: you're told that the <code>POST</code> data shall actually be delivered via form parameters since there are clients that seem to have problems with generating "that JSON thingy".</p><p>Your stack doesn't really account for this, crap. And who changes requirements at this point in time? Well, whatever, let's get to it:</p><pre><code class="clojure">&#40;def app
-  &#40;-&gt; &#40;compojure/routes
-        &#40;wrap-json
-          &#40;compojure/routes
-            &#40;GET  &quot;/people/:id&quot; ...&#41;
-            &#40;GET  &quot;/people&quot; ...&#41;&#41;&#41;
-        &#40;wrap-form-params
-          &#40;POST &quot;/people/:id&quot; ...&#41;&#41;&#41;
-      &#40;wrap-something-else&#41;&#41;&#41;
-</code></pre><p>Ah, but we should add an ETag to the <code>GET /people/:id</code> endpoint, so it can be cached (not the <code>GET /people</code> one, though, since it changes way too frequently). But this one has to be applied after the response JSON was created, so there is really no way around the following disaster:</p><pre><code class="clojure">&#40;def app
-  &#40;-&gt; &#40;compojure/routes
-        &#40;-&gt; &#40;GET &quot;/people/:id&quot; ...&#41;
-            &#40;wrap-json&#41;
-            &#40;wrap-etag&#41;&#41;
-        &#40;wrap-json
-          &#40;GET &quot;/people&quot; ...&#41;&#41;
-        &#40;wrap-form-params
-          &#40;POST &quot;/people/:id&quot; ...&#41;&#41;&#41;
-      &#40;wrap-something-else&#41;&#41;&#41;
-</code></pre><p>I exaggeratingly call it a disaster, yet it's still quite manageable in small applications (and proper namespacing goes a long way). However:</p><ul><li>the <code>wrap-json</code> middleware is duplicated across multiple handlers,</li><li>you thus have to exchange it in multiple places if you want to switch  implementations,</li><li>you better pray that there are no more requirements that increase the  heterogenity of your service.</li></ul><p>Maybe it's just me but we should be doing better.</p><h3><a name="sandwiches"></a>Sandwiches</h3><p>When my girlfriend asked me about my day I wanted to tell her about this thing I was working on. But she doesn't care much for the technobabble-esque sprout of words I'd produce were I to present it, for example, at work - thus, an analogy was needed! And since it was over dinner, a delicious one at that!</p><blockquote><p> Imagine a sandwich dispenser with buttons delivering different variants of   awesome sandwiches; let's say a French Ham and Cheese Sandwich or a Deviled Ham   with Pickled Jalapeños one. </p></blockquote><p>Disclaimer: I don't know a lot about sandwiches and they are also not that common in Germany, so I basically just googled <code>sandwich recipes</code> and random-walked across the first few results.</p><blockquote><p> Now, what happens exactly when you press the button? One possible outcome   could certainly be that a small door opens somewhere deep inside the   machine and your ready-made sandwich slides down into your arms.<br /> <br />   In some other cases a tiny conveyor belt could be activated, a slice of bread   is put onto it, then some slices of ham (French or Deviled), cheese and spicy   stuff afterwards - but only if the sandwich requires it. <br /> <br />   Basically, the moment you press the button, the sandwich recipe is sent to the   conveyor belt and only the needed ingredients are added. </p></blockquote><p>I then explained the maintenance advantages.</p><blockquote><p> If, for example, it turns out that sandwiches with ham on top of the chesse sell better than the other way around you don't have to rearrange all the ready-made stacks, just the order of the ingredients on the belt. Same goes if you prefer a certain kind of cheese over the current one. </p></blockquote><p>She nodded, smiled and we had carrot cake; and if you haven't caught on: The ham is a middleware.</p><h3><a name="what&#95;about&#95;the&#95;cheese?"></a>What about the Cheese?</h3><p>Also a middleware.</p><h3><a name="conditional&#95;middlewares"></a>Conditional Middlewares</h3><p>Many existing middlewares are already triggered by some piece of information in the request or response maps - <a href='https://github.com/ring-clojure/ring-json'>ring-json</a>, for example, only runs if the <code>content-type</code> header is set appropriately. But there are much more powerful triggers.</p><p><b>Route Early ...</b></p><p>If the routing decision is made at the very top of the stack and the actual request processing happens on the very bottom, all middlewares inbetween have access to where the current request <i>will be routed</i>:</p><pre><code class="clojure">{:request-method :get
+  &#40;let &#91;person-handler &#40;wrap-json person-handler&#41;
+        people-handler &#40;wrap-json people-handler&#41;
+        create-person! &#40;wrap-form-params create-person!&#41;&#93;
+    &#40;-&gt; &#40;compojure/routes
+          &#40;GET  &quot;/people/:id&quot; req &#40;person-handler req&#41;&#41;
+          &#40;GET  &quot;/people&quot;     req &#40;people-handler req&#41;&#41;
+          &#40;POST &quot;/people/:id&quot; req &#40;create-person! req&#41;&#41;&#41;
+      &#40;wrap-something-else&#41;&#41;&#41;&#41;
+</code></pre><p>Ah, I just remembered, we should add an ETag to the <code>GET /people/:id</code> endpoint, so it can be cached (not the <code>GET /people</code> one, though, since it changes way too frequently):</p><pre><code class="clojure">&#40;def app
+  &#40;let &#91;person-handler &#40;-&gt; person-handler wrap-json wrap-etag&#41;
+        people-handler &#40;wrap-json people-handler&#41;
+        create-person! &#40;wrap-form-params create-person!&#41;&#93;
+    &#40;-&gt; &#40;compojure/routes
+          &#40;GET  &quot;/people/:id&quot; req &#40;person-handler req&#41;&#41;
+          &#40;GET  &quot;/people&quot;     req &#40;people-handler req&#41;&#41;
+          &#40;POST &quot;/people/:id&quot; req &#40;create-person! req&#41;&#41;&#41;
+      &#40;wrap-something-else&#41;&#41;&#41;&#41;
+</code></pre><p>This is surely quite manageable in small applications (and proper namespacing and encapsulation goes a long way). However:</p><ul><li>the <code>wrap-json</code> middleware is duplicated across multiple handlers,</li><li>you thus have to exchange it in multiple places if you want to switch  implementations,</li><li>you better pray that there are no more requirements that increase the  heterogenity of your service.</li></ul><p>Maybe it's just me but we should be doing better.</p><h3><a name="sandwiches"></a>Sandwiches</h3><p>When my girlfriend asked me about my day I wanted to tell her about this thing I was working on. But she doesn't care much for the technobabble-esque sprout of words I'd produce were I to present it, for example, at work - thus, an analogy was needed! And since it was over dinner, a delicious one at that!</p><blockquote><p> Imagine a sandwich dispenser with buttons delivering different variants of   awesome sandwiches; let's say a French Ham and Cheese Sandwich or a Deviled Ham   with Pickled Jalapeños one. </p></blockquote><p>Disclaimer: I don't know a lot about sandwiches and they are also not that common in Germany, so I basically just googled <code>sandwich recipes</code> and random-walked across the first few results.</p><blockquote><p> Now, what happens exactly when you press the button? One possible outcome   could certainly be that a small door opens somewhere deep inside the   machine and your ready-made sandwich slides down into your arms.<br /> <br />   In some other cases a tiny conveyor belt could be activated, a slice of bread   is put onto it, then some slices of ham (French or Deviled), cheese and spicy   stuff afterwards - but only if the sandwich requires it. <br /> <br />   Basically, the moment you press the button, the sandwich recipe is sent to the   conveyor belt and only the needed ingredients are added. </p></blockquote><p>I then explained the maintenance advantages.</p><blockquote><p> If, for example, it turns out that sandwiches with ham on top of the chesse sell better than the other way around you don't have to rearrange all the ready-made stacks, just the order of the ingredients on the belt. Same goes if you prefer a certain kind of cheese over the current one. </p></blockquote><p>She nodded, smiled and we had carrot cake; and if you haven't caught on: The ham is a middleware.</p><h3><a name="what&#95;about&#95;the&#95;cheese?"></a>What about the Cheese?</h3><p>Also a middleware.</p><h3><a name="conditional&#95;middlewares"></a>Conditional Middlewares</h3><p>Many existing middlewares are already triggered by some piece of information in the request or response maps - <a href='https://github.com/ring-clojure/ring-json'>ring-json</a>, for example, only runs if the <code>content-type</code> header is set appropriately. But there are much more powerful triggers.</p><p><b>Route Early ...</b></p><p>If the routing decision is made at the very top of the stack and the actual request processing happens on the very bottom, all middlewares inbetween have access to where the current request <i>will be routed</i>:</p><pre><code class="clojure">{:request-method :get
  :uri            &quot;/people/123&quot;
  :headers        {}
  :route-id       :person
